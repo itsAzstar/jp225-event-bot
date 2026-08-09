@@ -1,0 +1,10 @@
+# 含 token，絕對不要 commit
+config.json
+
+# 執行狀態
+state.json
+
+__pycache__/
+*.pyc
+.venv/
+venv/

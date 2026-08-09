@@ -1,0 +1,43 @@
+name: JP225 事件推播
+
+on:
+  schedule:
+    # 每 5 分鐘執行一次（GitHub cron 用 UTC，但腳本內部自行換算台北時間）
+    # ⚠ 免費層排程常延遲 5~15 分鐘，這是 GitHub 的已知限制，非設定問題
+    - cron: '*/5 * * * *'
+  workflow_dispatch:        # 允許在 Actions 頁面手動觸發（測試用）
+
+# 避免前一次還沒跑完就啟動下一次
+concurrency:
+  group: jp225-push
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: 安裝相依套件
+        run: pip install -r requirements.txt
+
+      - name: 執行推播
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          SYMBOL:             ${{ vars.SYMBOL           || '^N225' }}
+          IS_DST:             ${{ vars.IS_DST           || 'true' }}
+          PRE_ALERT_MIN:      ${{ vars.PRE_ALERT_MIN    || '10' }}
+          REACTION_MIN:       ${{ vars.REACTION_MIN     || '30' }}
+          DAILY_DIGEST_AT:    ${{ vars.DAILY_DIGEST_AT  || '07:00' }}
+          WINDOW_MIN:         ${{ vars.WINDOW_MIN       || '5' }}
+          ENABLE_NEWS:        ${{ vars.ENABLE_NEWS      || 'false' }}
+          NEWS_API_KEY:       ${{ secrets.NEWS_API_KEY }}
+        run: python bot_cron.py
