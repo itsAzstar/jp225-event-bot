@@ -54,8 +54,11 @@ CHAT_ID   = env("TELEGRAM_CHAT_ID")
 CHAT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat_id.txt")
 
 
+NEWLY_FOUND = False   # 僅在「本次才從 getUpdates 發現」時為 True
+
+
 def discover_chat_id():
-    global CHAT_ID
+    global CHAT_ID, NEWLY_FOUND
     if CHAT_ID:
         return CHAT_ID
     try:
@@ -80,6 +83,7 @@ def discover_chat_id():
                 ids.append(str(c))
         if ids:
             CHAT_ID = ids[-1]
+            NEWLY_FOUND = True
             try:
                 with open(CHAT_FILE, "w", encoding="utf-8") as f:
                     f.write(CHAT_ID)
@@ -218,17 +222,15 @@ def main():
         print("尚無 chat_id，本次不發送。請對 bot 發一則訊息（/start）後等下次排程。")
         return 0
 
-    # 首次取得 chat_id 時打招呼，確認通道打通
-    first_flag = CHAT_FILE + ".greeted"
-    if not os.path.exists(first_flag):
-        if send("🤖 <b>JP225 事件推播已連線</b>\n\n"
-                f"chat_id：<code>{cid}</code>\n"
-                "已自動記錄，之後不需再設定。\n\n"
-                "<i>這是資訊推播工具，不是交易訊號。</i>"):
-            try:
-                open(first_flag, "w").close()
-            except Exception:
-                pass
+    # 只在「本次才從 getUpdates 發現 chat_id」時打招呼。
+    # 不能用本地旗標檔判斷 —— Actions 每次都是全新容器，旗標不會留存，
+    # 會導致每 5 分鐘重發一次問候（一天 288 則）。
+    # chat_id.txt 有被 commit 回 repo，所以之後的執行都會走「由檔案取得」這條路。
+    if NEWLY_FOUND:
+        send("🤖 <b>JP225 事件推播已連線</b>\n\n"
+             f"chat_id：<code>{cid}</code>\n"
+             "已自動記錄，之後不需再設定。\n\n"
+             "<i>這是資訊推播工具，不是交易訊號。</i>")
 
     sent = 0
 
