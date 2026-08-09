@@ -101,9 +101,10 @@ PRE_MIN   = int(env("PRE_ALERT_MIN", "10"))
 REACT_MIN = int(env("REACTION_MIN", "30"))
 DIGEST_AT = env("DAILY_DIGEST_AT", "07:00")
 WINDOW    = int(env("WINDOW_MIN", "5"))
-NEWS_ON   = env("ENABLE_NEWS", "false").lower() == "true"
-NEWS_KEY  = env("NEWS_API_KEY")
-NEWS_Q    = env("NEWS_QUERY", 'Nikkei OR "Japan stocks" OR BOJ')
+NEWS_ON   = env("ENABLE_NEWS", "true").lower() == "true"
+NEWS_HRS  = int(env("NEWS_LOOKBACK_HOURS", "12"))
+# 新聞來源改用 Google News RSS（免金鑰），摘要用 DeepSeek。
+# DEEPSEEK_API_KEY 由 news_ai 直接讀取環境變數。
 
 
 def fmt_hm(m):
@@ -189,27 +190,31 @@ def sentiment(title):
     return "🟢 偏正面" if p > n else "🔴 偏負面" if n > p else "⚪ 中性/不明"
 
 
-def news_block():
-    if not NEWS_ON or not NEWS_KEY:
+def news_block(hours=12):
+    """
+    Google News RSS 取標題 → DeepSeek 摘要 → 三道防線過濾。
+    未設 DEEPSEEK_API_KEY 或任一步失敗時回 None，絕不編造內容。
+    """
+    if not NEWS_ON:
         return None
-    since = (datetime.now(timezone.utc) - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S")
     try:
-        r = requests.get("https://newsapi.org/v2/everything", params={
-            "q": NEWS_Q, "from": since, "sortBy": "publishedAt",
-            "language": "en", "pageSize": 5, "apiKey": NEWS_KEY}, timeout=20)
-        r.raise_for_status()
-        arts = r.json().get("articles", [])[:5]
+        import news_ai
     except Exception as e:
-        print(f"[news] {e}")
+        print(f"[news] 無法載入 news_ai：{e}")
         return None
+    since = datetime.now(TW) - timedelta(hours=hours)
+    arts = news_ai.fetch_news(since=since, limit=25)
     if not arts:
+        print("[news] 期間內無新聞")
         return None
-    lines = ["<b>📰 近期日股相關新聞</b>", ""]
-    for a in arts:
-        src = (a.get("source") or {}).get("name", "?")
-        lines.append(f"{sentiment(a.get('title'))}  <a href=\"{a.get('url')}\">{a.get('title')}</a>\n<i>{src}</i>\n")
-    lines.append("<i>情緒為關鍵字啟發法，非 NLP 模型</i>")
-    return "\n".join(lines)
+    res = news_ai.analyse(arts)
+    if not res:
+        return None
+    if res.get("dropped"):
+        print(f"[news] 程式刪除無來源編號的句子 {len(res['dropped'])} 句")
+    if res.get("ghost_numbers"):
+        print(f"[news] ⚠ 出現標題中沒有的數字：{res['ghost_numbers']}")
+    return news_ai.build_message(res, arts)
 
 
 def main():
@@ -245,7 +250,7 @@ def main():
                   "<i>粉紅為「可能有數據」的時間點，不代表今天一定有</i>"]
         if send("\n".join(lines)):
             sent += 1
-        nb = news_block()
+        nb = news_block(NEWS_HRS)
         if nb and send(nb):
             sent += 1
 
